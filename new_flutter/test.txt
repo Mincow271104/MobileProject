@@ -1,0 +1,563 @@
+import 'package:flutter/material.dart';
+import 'dashboard_screen.dart';
+import 'package:provider/provider.dart';
+import 'package:ionicons/ionicons.dart';
+import 'package:carousel_slider/carousel_slider.dart';
+import 'package:fluttertoast/fluttertoast.dart';
+import 'dart:async';
+import '../utils/api.dart';
+import '../providers/user_provider.dart';
+import '../providers/cart_provider.dart';
+import '../models/banner_model.dart';
+import '../models/product_model.dart';
+import 'product_detail_screen.dart';
+
+class HomeScreen extends StatefulWidget {
+  const HomeScreen({super.key});
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  List<BannerModel> _banners = [];
+  List<ProductModel> _products = [];
+  bool _isLoading = true;
+  int _currentPage = 1;
+  int _totalPages = 1;
+  final int _limit = 10;
+  String _searchValue = '';
+  String _filterValue = 'ALL';
+  String _sortValue = '0';
+  final _searchController = TextEditingController();
+  Timer? _debounce;
+  CarouselSliderController _carouselController = CarouselSliderController();
+
+  @override
+  void initState() {
+    super.initState();
+    _loadData();
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadData() async {
+    setState(() => _isLoading = true);
+    final apiService = Provider.of<UserProvider>(
+      context,
+      listen: false,
+    ).apiService;
+    final bannerResponse = await apiService.getSaleBannerInfo();
+    final productResponse = await apiService.loadSaleProductInfo(
+      page: _currentPage,
+      limit: _limit,
+      search: _searchValue,
+      filter: _filterValue,
+      sort: _sortValue,
+    );
+
+    if (bannerResponse['success'] && bannerResponse['data'] != null) {
+      setState(() {
+        _banners = (bannerResponse['data'] as List)
+            .map((json) => BannerModel.fromJson(json))
+            .toList();
+      });
+    }
+    if (productResponse['success'] && productResponse['data'] != null) {
+      setState(() {
+        _products = (productResponse['data'] as List)
+            .map((json) => ProductModel.fromJson(json))
+            .toList();
+        _totalPages = (productResponse['totalItems'] ?? 0) ~/ _limit + 1;
+      });
+    }
+    setState(() => _isLoading = false);
+  }
+
+  void _handlePageChange(int page) {
+    setState(() => _currentPage = page.clamp(1, _totalPages));
+    _loadData();
+  }
+
+  void _handlePrevPage() {
+    if (_currentPage > 1) {
+      setState(() => _currentPage--);
+      _loadData();
+    }
+  }
+
+  void _handleNextPage() {
+    if (_currentPage < _totalPages) {
+      setState(() => _currentPage++);
+      _loadData();
+    }
+  }
+
+  void _handleFirstPage() {
+    if (_currentPage > 1) {
+      setState(() => _currentPage = 1);
+      _loadData();
+    }
+  }
+
+  void _handleLastPage() {
+    if (_currentPage < _totalPages) {
+      setState(() => _currentPage = _totalPages);
+      _loadData();
+    }
+  }
+
+  void _handleSearch(String value) {
+    if (_debounce?.isActive ?? false) _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 500), () {
+      setState(() {
+        _searchValue = value;
+        _currentPage = 1;
+      });
+      _loadData();
+    });
+  }
+
+  void _handleFilter(String value) {
+    setState(() {
+      _filterValue = value;
+      _currentPage = 1;
+    });
+    _loadData();
+  }
+
+  void _handleSort(String value) {
+    setState(() {
+      _sortValue = value;
+      _currentPage = 1;
+    });
+    _loadData();
+  }
+
+  void _handleLogout() async {
+    final userProvider = Provider.of<UserProvider>(context, listen: false);
+    await userProvider.logoutUser();
+    Navigator.pushReplacementNamed(context, '/login');
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final userProvider = Provider.of<UserProvider>(context);
+    final user = userProvider.user;
+
+    return Scaffold(
+      appBar: AppBar(
+        title: TextField(
+          controller: _searchController,
+          decoration: const InputDecoration(
+            hintText: 'Tìm kiếm sản phẩm...',
+            prefixIcon: Icon(
+              Ionicons.search_outline,
+              color: Color.fromARGB(255, 0, 0, 0),
+              size: 24.0,
+            ),
+            border: InputBorder.none,
+            hintStyle: TextStyle(
+              color: Color.fromARGB(179, 0, 0, 0),
+              fontSize: 18.0,
+            ),
+            isDense: true,
+            contentPadding: EdgeInsets.symmetric(vertical: 0.0),
+          ),
+          style: const TextStyle(
+            color: Color.fromARGB(255, 0, 0, 0),
+            fontSize: 18.0,
+            
+          ),
+          onChanged: _handleSearch,
+        ),
+        backgroundColor: const Color.fromARGB(255, 255, 255, 255),
+        actions: [
+          if (user != null)
+            IconButton(
+              icon: const Icon(Ionicons.log_out_outline, color: Colors.white),
+              onPressed: _handleLogout,
+            ),
+        ],
+      ),
+      body: _isLoading
+          ? const Center(
+              child: CircularProgressIndicator(color: Color(0xFF4CAF50)),
+            )
+          : SingleChildScrollView(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Banner trượt
+                  if (_banners.isNotEmpty)
+                    Column(
+                      children: [
+                        Stack(
+                          alignment: Alignment.center,
+                          children: [
+                            CarouselSlider(
+                              carouselController: _carouselController,
+                              options: CarouselOptions(
+                                height: 300.0,
+                                autoPlay: true,
+                                autoPlayInterval: const Duration(seconds: 5),
+                                enlargeCenterPage: true,
+                                viewportFraction: 1.0,
+                                onPageChanged: (index, reason) {
+                                  setState(() {});
+                                },
+                              ),
+                              items: _banners.map((banner) {
+                                return Builder(
+                                  builder: (BuildContext context) {
+                                    return GestureDetector(
+                                      onTap: banner.productId != null
+                                          ? () {
+                                              Navigator.push(
+                                                context,
+                                                MaterialPageRoute(
+                                                  builder: (context) =>
+                                                      ProductDetailScreen(
+                                                        productId:
+                                                            banner.productId!,
+                                                      ),
+                                                ),
+                                              );
+                                            }
+                                          : null,
+                                      child: ClipRRect(
+                                        borderRadius: BorderRadius.circular(40),
+                                        child: Image.network(
+                                          banner.bannerImage,
+                                          fit: BoxFit.contain,
+                                          width: double.infinity,
+                                        ),
+                                      ),
+                                    );
+                                  },
+                                );
+                              }).toList(),
+                            ),
+                            Positioned(
+                              left: 10,
+                              child: IconButton(
+                                icon: const Icon(
+                                  Ionicons.chevron_back_outline,
+                                  color: Colors.white,
+                                  size: 30,
+                                ),
+                                onPressed: () {
+                                  _carouselController.previousPage();
+                                },
+                              ),
+                            ),
+                            Positioned(
+                              right: 10,
+                              child: IconButton(
+                                icon: const Icon(
+                                  Ionicons.chevron_forward_outline,
+                                  color: Colors.white,
+                                  size: 30,
+                                ),
+                                onPressed: () {
+                                  _carouselController.nextPage();
+                                },
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 20),
+                      ],
+                    ),
+                  // Dropdown menu
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      DropdownButton<String>(
+                        value: _filterValue,
+                        hint: const Text('Lọc sản phẩm'),
+                        items: [
+                          const DropdownMenuItem(
+                            value: 'ALL',
+                            child: Text('Tất cả sản phẩm'),
+                          ),
+                          const DropdownMenuItem(
+                            value: 'PROMOTION',
+                            child: Text('Sản phẩm khuyến mãi'),
+                          ),
+                        ],
+                        onChanged: (value) => _handleFilter(value ?? 'ALL'),
+                        underline: const SizedBox(),
+                      ),
+                      DropdownButton<String>(
+                        value: _sortValue,
+                        hint: const Text('Sắp xếp'),
+                        items: const [
+                          DropdownMenuItem(value: '0', child: Text('Mặc định')),
+                          DropdownMenuItem(value: '1', child: Text('Bán chạy')),
+                          DropdownMenuItem(
+                            value: '2',
+                            child: Text('Giá tăng dần'),
+                          ),
+                          DropdownMenuItem(
+                            value: '3',
+                            child: Text('Giá giảm dần'),
+                          ),
+                          DropdownMenuItem(value: '4', child: Text('Hàng mới')),
+                        ],
+                        onChanged: (value) => _handleSort(value ?? '0'),
+                        underline: const SizedBox(),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 20),
+                  // Danh sách sản phẩm
+                  GridView.builder(
+                    shrinkWrap: true,
+                    physics: const NeverScrollableScrollPhysics(),
+                    gridDelegate:
+                        const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 2,
+                          childAspectRatio: 0.6,
+                          crossAxisSpacing: 8.0,
+                          mainAxisSpacing: 8.0,
+                        ),
+                    itemCount: _products.length,
+                    itemBuilder: (context, index) {
+                      final product = _products[index];
+                      return Card(
+                        elevation: 4,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                        child: GestureDetector(
+                          onTap: () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (context) => ProductDetailScreen(
+                                  productId: product.productId,
+                                ),
+                              ),
+                            );
+                          },
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              SizedBox(
+                                height: 120,
+                                child: ClipRRect(
+                                  borderRadius: const BorderRadius.vertical(
+                                    top: Radius.circular(10),
+                                  ),
+                                  child: Image.network(
+                                    product.productImage,
+                                    fit: BoxFit.cover,
+                                    width: double.infinity,
+                                  ),
+                                ),
+                              ),
+                              Expanded(
+                                child: Padding(
+                                  padding: const EdgeInsets.all(8.0),
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Text(
+                                        product.productName,
+                                        style: const TextStyle(
+                                          fontWeight: FontWeight.bold,
+                                          color: Color(0xFF4CAF50),
+                                          fontSize: 16,
+                                        ),
+                                        maxLines: 2,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      Row(
+                                        children: [
+                                          Text(
+                                            'Giá: ${product.itemPrice.toStringAsFixed(0)} đ',
+                                            style: const TextStyle(
+                                              fontSize: 14,
+                                            ),
+                                          ),
+                                          if (product.promotion != null &&
+                                              product.promotion! > 0)
+                                            Text(
+                                              ' (${product.promotion}% off)',
+                                              style: const TextStyle(
+                                                color: Colors.red,
+                                                fontSize: 12,
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                      Text(
+                                        'Mặc định: ${product.detailName ?? 'N/A'}',
+                                        style: const TextStyle(
+                                          color: Colors.grey,
+                                          fontSize: 12,
+                                        ),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                      ),
+                                      const Spacer(),
+                                      SizedBox(
+                                        width: double.infinity,
+                                        child: ElevatedButton(
+                                          onPressed: () async {
+                                            final apiService =
+                                                Provider.of<UserProvider>(
+                                                  context,
+                                                  listen: false,
+                                                ).apiService;
+                                            final user =
+                                                Provider.of<UserProvider>(
+                                                  context,
+                                                  listen: false,
+                                                ).user;
+                                            final accountId =
+                                                user?.accountId ?? '';
+
+                                            final response = await apiService
+                                                .addToCart(accountId, [
+                                                  {
+                                                    'ProductID':
+                                                        product.productId,
+                                                    'ProductDetailID':
+                                                        product
+                                                            .productDetailId ??
+                                                        1,
+                                                    'ItemPrice':
+                                                        product.itemPrice,
+                                                    'ItemQuantity': 1,
+                                                  },
+                                                ]);
+
+                                            if (response['errCode'] == 0) {
+                                              Provider.of<CartProvider>(
+                                                context,
+                                                listen: false,
+                                              ).loadCartCount(context);
+                                            } else {
+                                              Fluttertoast.showToast(
+                                                msg:
+                                                    response['errMessage'] ??
+                                                    'Lỗi thêm vào giỏ',
+                                                backgroundColor: Colors.red,
+                                              );
+                                            }
+                                          },
+                                          style: ElevatedButton.styleFrom(
+                                            backgroundColor: const Color(
+                                              0xFF4CAF50,
+                                            ),
+                                            padding: const EdgeInsets.symmetric(
+                                              vertical: 8.0,
+                                            ),
+                                          ),
+                                          child: const Row(
+                                            mainAxisAlignment:
+                                                MainAxisAlignment.center,
+                                            children: [
+                                              Icon(
+                                                Ionicons.cart_outline,
+                                                color: Colors.white,
+                                              ),
+                                              SizedBox(width: 5),
+                                              Text(
+                                                'Thêm vào giỏ',
+                                                style: TextStyle(
+                                                  color: Colors.white,
+                                                ),
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                  const SizedBox(height: 20),
+                  // Phân trang
+                  if (_totalPages > 1)
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        IconButton(
+                          icon: const Icon(
+                            Ionicons.chevron_back_circle_outline,
+                          ),
+                          onPressed: _handleFirstPage,
+                          color: _currentPage == 1
+                              ? Colors.grey
+                              : const Color(0xFF4CAF50),
+                        ),
+                        IconButton(
+                          icon: const Icon(Ionicons.chevron_back_outline),
+                          onPressed: _handlePrevPage,
+                          color: _currentPage == 1
+                              ? Colors.grey
+                              : const Color(0xFF4CAF50),
+                        ),
+                        Container(
+                          width: 50,
+                          child: TextField(
+                            textAlign: TextAlign.center,
+                            decoration: const InputDecoration(
+                              border: InputBorder.none,
+                              focusedBorder: InputBorder.none,
+                              enabledBorder: InputBorder.none,
+                              errorBorder: InputBorder.none,
+                              disabledBorder: InputBorder.none,
+                              contentPadding: EdgeInsets.symmetric(
+                                vertical: 0.0,
+                              ),
+                            ),
+                            controller: TextEditingController(
+                              text: _currentPage.toString(),
+                            ),
+                            onSubmitted: (value) =>
+                                _handlePageChange(int.tryParse(value) ?? 1),
+                          ),
+                        ),
+                        Text('/ $_totalPages'),
+                        IconButton(
+                          icon: const Icon(Ionicons.chevron_forward_outline),
+                          onPressed: _handleNextPage,
+                          color: _currentPage == _totalPages
+                              ? Colors.grey
+                              : const Color(0xFF4CAF50),
+                        ),
+                        IconButton(
+                          icon: const Icon(
+                            Ionicons.chevron_forward_circle_outline,
+                          ),
+                          onPressed: _handleLastPage,
+                          color: _currentPage == _totalPages
+                              ? Colors.grey
+                              : const Color(0xFF4CAF50),
+                        ),
+                      ],
+                    ),
+                ],
+              ),
+            ),
+    );
+  }
+}
